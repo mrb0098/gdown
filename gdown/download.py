@@ -13,6 +13,8 @@ from http.cookiejar import MozillaCookieJar
 import bs4
 import requests
 import tqdm
+import functools
+from typing import Callable
 
 from ._indent import indent
 from .exceptions import FileURLRetrievalError
@@ -124,6 +126,8 @@ def download(
     format=None,
     user_agent=None,
     log_messages=None,
+    progress: Callable = None,
+    progress_args: tuple = ()
 ):
     """Download file from URL.
 
@@ -165,12 +169,24 @@ def download(
         Log messages to customize. Currently it supports:
         - 'start': the message to show the start of the download
         - 'output': the message to show the output filename
-
+    
+    progress (``Callable``, *optional*):
+        Pass a callback function to view the file transmission progress.
+        The function must take *(time_start , current, total)* as positional arguments (look at Other Parameters below for a
+        detailed description) and will be called back each time a new file chunk has been successfully
+        transmitted.
+    progress_args (``tuple``, *optional*):
+        Extra custom arguments for the progress callback function.
+        You can pass anything you need to be available in the progress callback scope;
+        
     Returns
     -------
     output: str
         Output filename.
     """
+    if progress :
+        quiet=True
+        
     if not (id is None) ^ (url is None):
         raise ValueError("Either url or id has to be specified")
     if id is not None:
@@ -360,6 +376,7 @@ def download(
 
     try:
         total = res.headers.get("Content-Length")
+        current = 0
         if total is not None:
             total = int(total) + start_size
         if not quiet:
@@ -367,6 +384,17 @@ def download(
         t_start = time.time()
         for chunk in res.iter_content(chunk_size=CHUNK_SIZE):
             f.write(chunk)
+            current += len(chunk)
+            if progress:
+                func = functools.partial(
+                    progress,
+                    t_start,
+                    current,
+                    total,
+                    *progress_args
+                )
+                func()
+                
             if not quiet:
                 pbar.update(len(chunk))
             if speed is not None:
